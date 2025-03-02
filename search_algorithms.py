@@ -1,108 +1,117 @@
 from collections import deque
 import heapq
-import numpy as np
 
-def get_neighbors(x, y, maze):
-    """
-    Returns valid 4-directional neighbors (up, down, left, right).
-    """
+def get_neighbors(maze_grid, pos):
+    directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
     neighbors = []
-    for dx, dy in [(0,1), (0,-1), (1,0), (-1,0)]:
-        nx, ny = x + dx, y + dy
-        if 0 <= nx < maze.shape[1] and 0 <= ny < maze.shape[0]:
-            if maze[ny][nx] == 0:  # open cell
-                neighbors.append((nx, ny))
+    r, c = pos
+    rows, cols = maze_grid.shape
+    for dr, dc in directions:
+        nr, nc = r + dr, c + dc
+        if 0 <= nr < rows and 0 <= nc < cols and maze_grid[nr, nc] == 0:
+            neighbors.append((nr, nc))
     return neighbors
 
-def dfs(maze, start, goal):
-    """
-    Depth-First Search: non-optimal, but easy to implement.
-    :param maze: 2D numpy array (0=open, 1=wall)
-    :param start: (x, y) start position
-    :param goal: (x, y) goal position
-    :return: list of path coordinates from start to goal or None if not found
-    """
+def dfs(maze_grid, start, goal):
     stack = [start]
-    visited = set([start])
-    parent = {start: None}  # For reconstructing path
+    visited = set()
+    parent = {}
+    nodes_expanded = 0
 
     while stack:
         current = stack.pop()
+        nodes_expanded += 1
         if current == goal:
-            # Reconstruct path
-            return _reconstruct_path(parent, current)
+            break
+        if current in visited:
+            continue
+        visited.add(current)
+        for neighbor in get_neighbors(maze_grid, current):
+            if neighbor not in visited:
+                stack.append(neighbor)
+                if neighbor not in parent:
+                    parent[neighbor] = current
 
-        for n in get_neighbors(current[0], current[1], maze):
-            if n not in visited:
-                visited.add(n)
-                parent[n] = current
-                stack.append(n)
-    return None
+    if current != goal:
+        return None, nodes_expanded
 
-def bfs(maze, start, goal):
-    """
-    Breadth-First Search: guarantees shortest path in an unweighted maze.
-    """
+    path = []
+    node = goal
+    while node != start:
+        path.append(node)
+        node = parent[node]
+    path.append(start)
+    path.reverse()
+    return path, nodes_expanded
+
+def bfs(maze_grid, start, goal):
     queue = deque([start])
-    visited = set([start])
-    parent = {start: None}
+    visited = {start}
+    parent = {}
+    nodes_expanded = 0
 
     while queue:
         current = queue.popleft()
+        nodes_expanded += 1
         if current == goal:
-            return _reconstruct_path(parent, current)
-
-        for n in get_neighbors(current[0], current[1], maze):
-            if n not in visited:
-                visited.add(n)
-                parent[n] = current
-                queue.append(n)
-    return None
-
-def a_star(maze, start, goal):
-    """
-    A* Search: uses a heuristic (Manhattan distance) to guide search.
-    """
-    open_list = []
-    heapq.heappush(open_list, (0, start))
-    visited = set()
-    parent = {start: None}
-
-    g_score = {start: 0}  # Cost from start
-    f_score = {start: _heuristic(start, goal)}
-
-    while open_list:
-        _, current = heapq.heappop(open_list)
-        if current == goal:
-            return _reconstruct_path(parent, current)
-
-        visited.add(current)
-
-        for neighbor in get_neighbors(current[0], current[1], maze):
-            tentative_g = g_score[current] + 1
-            if neighbor in visited and tentative_g >= g_score.get(neighbor, float('inf')):
-                continue
-            if tentative_g < g_score.get(neighbor, float('inf')):
+            break
+        for neighbor in get_neighbors(maze_grid, current):
+            if neighbor not in visited:
+                visited.add(neighbor)
                 parent[neighbor] = current
-                g_score[neighbor] = tentative_g
-                f_score[neighbor] = tentative_g + _heuristic(neighbor, goal)
-                heapq.heappush(open_list, (f_score[neighbor], neighbor))
-    return None
+                queue.append(neighbor)
 
-def _heuristic(a, b):
-    """
-    Manhattan distance heuristic.
-    """
-    (x1, y1), (x2, y2) = a, b
-    return abs(x1 - x2) + abs(y1 - y2)
+    if current != goal:
+        return None, nodes_expanded
 
-def _reconstruct_path(parent, current):
-    """
-    Reconstruct path from start to goal using the parent dictionary.
-    """
     path = []
-    while current is not None:
-        path.append(current)
-        current = parent[current]
+    node = goal
+    while node != start:
+        path.append(node)
+        node = parent[node]
+    path.append(start)
     path.reverse()
-    return path
+    return path, nodes_expanded
+
+def manhattan(a, b):
+    return abs(a[0] - b[0]) + abs(a[1] - b[1])
+
+def astar(maze_grid, start, goal):
+    
+    import heapq
+
+    open_set = []
+    # The heap will store tuples of (f_score, g_score, node)
+    heapq.heappush(open_set, (manhattan(start, goal), 0, start))
+    came_from = {}
+    g_score = {start: 0}
+    nodes_expanded = 0
+    closed_set = set()
+
+    while open_set:
+        f, current_g, current = heapq.heappop(open_set)
+        nodes_expanded += 1
+
+        if current == goal:
+            path = []
+            node = current
+            while node in came_from:
+                path.append(node)
+                node = came_from[node]
+            path.append(start)
+            path.reverse()
+            return path, nodes_expanded
+
+        if current in closed_set:
+            continue
+        closed_set.add(current)
+
+        for neighbor in get_neighbors(maze_grid, current):
+            tentative_g = current_g + 1
+            if tentative_g < g_score.get(neighbor, float('inf')):
+                g_score[neighbor] = tentative_g
+                priority = tentative_g + manhattan(neighbor, goal)
+                heapq.heappush(open_set, (priority, tentative_g, neighbor))
+                came_from[neighbor] = current
+
+    return None, nodes_expanded

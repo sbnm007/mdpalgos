@@ -1,104 +1,45 @@
-import csv
 import numpy as np
-import argparse
-import matplotlib.pyplot as plt
 import random
-from collections import deque
 
-class MazeGenerator:
-    """Generates a maze using the Recursive Backtracking (DFS) algorithm."""
-    def __init__(self, width=21, height=21, seed=None):
-        """
-        :param width:  Width of the maze (number of cells, should be odd)
-        :param height: Height of the maze (number of cells, should be odd)
-        :param seed:   Optional seed for reproducibility
-        """
-        # Ensure width and height are odd
-        self.width = width if width % 2 == 1 else width + 1
-        self.height = height if height % 2 == 1 else height + 1
-        if seed is not None:
-            random.seed(seed)
-        self.start_x, self.start_y = 1, 1  # Always start at (1,1)
-        self.exit_x, self.exit_y = self._random_exit()
-        self.maze = self._generate_maze()
-        self._mark_start_end()
+class Maze:
+    def __init__(self, cells_w, cells_h):
+        self.cells_w = cells_w
+        self.cells_h = cells_h
+        self.grid_w = 2 * cells_w + 1
+        self.grid_h = 2 * cells_h + 1
+        self.grid = np.ones((self.grid_h, self.grid_w), dtype=int)
 
-    def _random_exit(self):
-        """Selects a random exit position on any edge except the start."""
-        edge_positions = []
-        for i in range(1, self.width - 1, 2):  # Avoid corners
-            edge_positions.append((1, i))  # Top row
-            edge_positions.append((self.height - 1, i))  # Bottom row
-        for j in range(1, self.height - 1, 2):
-            edge_positions.append((j, 1))  # Left column
-            edge_positions.append((j, self.width - 1))  # Right column
-        
-        # Remove start position from possible exits
-        edge_positions = [(x, y) for (x, y) in edge_positions if (x, y) != (self.start_x, self.start_y)]
-        return random.choice(edge_positions)
+    def generate(self):
+        visited = [[False for _ in range(self.cells_w)] for _ in range(self.cells_h)]
+        stack = [(0, 0)]
+        visited[0][0] = True
+        self.grid[1, 1] = 0
 
-    def _generate_maze(self):
-        """
-        Generates a maze using a simple recursive backtracker (DFS).
-        0 = open path, 1 = wall
-        """
-        maze = np.ones((self.height, self.width), dtype=int)
-        maze[self.start_y][self.start_x] = 0
-        stack = [(self.start_x, self.start_y)]
-        directions = [(-2, 0), (2, 0), (0, -2), (0, 2)]
         while stack:
-            cx, cy = stack[-1]
-            random.shuffle(directions)
+            x, y = stack[-1]
             neighbors = []
-            for dx, dy in directions:
-                nx, ny = cx + dx, cy + dy
-                if 0 < nx < self.width - 1 and 0 < ny < self.height - 1 and maze[ny][nx] == 1:
-                    neighbors.append((nx, ny))
+            for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+                nx, ny = x + dx, y + dy
+                if 0 <= nx < self.cells_w and 0 <= ny < self.cells_h and not visited[ny][nx]:
+                    neighbors.append((nx, ny, dx, dy))
             if neighbors:
-                nx, ny = random.choice(neighbors)
-                maze[(ny + cy) // 2][(nx + cx) // 2] = 0
-                maze[ny][nx] = 0
+                nx, ny, dx, dy = random.choice(neighbors)
+                visited[ny][nx] = True
+                # Remove wall between current cell and neighbor:
+                grid_x, grid_y = 2 * x + 1, 2 * y + 1
+                self.grid[grid_y + dy, grid_x + dx] = 0
+                # Mark neighbor cell
+                self.grid[2 * ny + 1, 2 * nx + 1] = 0
                 stack.append((nx, ny))
             else:
                 stack.pop()
-        return maze
-    
-    def _mark_start_end(self):
-        """Marks the start and randomly chosen exit positions on the maze."""
-        self.maze[self.start_y][self.start_x] = 2  # Mark start with 2
-        self.maze[self.exit_y][self.exit_x] = 3  # Mark exit with 3
-
-    def save_to_csv(self, filename="maze.csv"):
-        """Saves the maze to a CSV file."""
-        with open(filename, "w", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerows(self.maze)
-
-    def visualize(self):
-        """Visualizes the maze using Matplotlib."""
-        plt.figure(figsize=(10, 10))
-        plt.imshow(self.maze, cmap="gray")
-        plt.xticks([])
-        plt.yticks([])
-        plt.title("Generated Maze with Start and End")
-        plt.show()
-
-
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--width", type=int, default=21, help="Width of the maze (odd number)")
-    parser.add_argument("--height", type=int, default=21, help="Height of the maze (odd number)")
-    parser.add_argument("--seed", type=int, default=None, help="Random seed for reproducibility")
-    parser.add_argument("--save", type=str, default=None, help="Save maze to CSV file")
-    parser.add_argument("--display", action="store_true", help="Display the generated maze")
-    args = parser.parse_args()
-    
-    mg = MazeGenerator(args.width, args.height, seed=args.seed)
-    if args.save:
-        mg.save_to_csv(args.save)
-        print(f"Maze saved to {args.save}")
-    if args.display:
-        mg.visualize()
+        return self.grid
 
 if __name__ == "__main__":
-    main()
+    # Simple test of maze generation.
+    maze = Maze(5, 5)
+    grid = maze.generate()
+
+    # Save grid to CSV file
+    np.savetxt('maze_test.csv', grid, delimiter=',', fmt='%d')
+    print(grid)

@@ -1,77 +1,234 @@
+import os
 import csv
-import numpy as np
-import argparse
-import matplotlib.pyplot as plt
 import time
-from collections import deque
-from search_algorithms import dfs, bfs, a_star
-from mdp_algorithms import build_mdp_model, value_iteration, policy_iteration
+import numpy as np
+import matplotlib.pyplot as plt
 
-def load_maze(filename):
-    """Loads a maze from a CSV file."""
-    with open(filename, 'r') as f:
-        reader = csv.reader(f)
-        maze = np.array([list(map(int, row)) for row in reader])
-    return maze
+from maze_generator import Maze
+from search_algorithms import dfs, bfs, astar
+from mdp_algorithms import value_iteration, policy_iteration
 
-def evaluate_algorithms(maze, start, goal):
-    """Runs and times all algorithms on the given maze."""
-    results = {}
+
+RESULTS_DIR = "results1"
+os.makedirs(RESULTS_DIR, exist_ok=True)
+IMAGE_DIR = os.path.join(RESULTS_DIR, "images")
+os.makedirs(IMAGE_DIR, exist_ok=True)
+
+def visualize_path(maze_grid, path, algorithm_name, maze_size, run_id):
     
+    plt.figure(figsize=(8, 8))
+    plt.imshow(maze_grid, cmap="binary")
+    if path:
+        rows = [p[0] for p in path]
+        cols = [p[1] for p in path]
+        plt.plot(cols, rows, color="red", linewidth=2, label=f"{algorithm_name} Path")
+    plt.title(f"Maze {maze_size}x{maze_size} - {algorithm_name} (Run {run_id})")
+    plt.legend()
+    filename = os.path.join(IMAGE_DIR, f"{algorithm_name.lower()}_maze{maze_size}_run{run_id}.png")
+    plt.savefig(filename)
+    plt.close()
+
+def visualize_value(maze_grid, V, maze_size, run_id):
+    value_array = np.full(maze_grid.shape, np.nan)
+    for (r, c), val in np.ndenumerate(V):
+        value_array[r, c] = val
+    plt.figure(figsize=(8, 8))
+    cmap = plt.cm.viridis.copy()
+    cmap.set_bad(color="black")
+    plt.imshow(value_array, cmap=cmap)
+    plt.colorbar(label="Value")
+    plt.title(f"Maze {maze_size}x{maze_size} - Value Function (Run {run_id})")
+    filename = os.path.join(IMAGE_DIR, f"value_maze{maze_size}_run{run_id}.png")
+    plt.savefig(filename)
+    plt.close()
+
+def visualize_policy(maze_grid, policy, maze_size, run_id):
+    X, Y, U, V_dir = [], [], [], []
+    for (r, c), action in np.ndenumerate(policy):
+        if action == -1 or maze_grid[r, c] != 0:
+            continue
+        X.append(c)
+        Y.append(r)
+        if action == 0:
+            U.append(-0.5)
+            V_dir.append(0)
+        elif action == 1:
+            U.append(0.5)
+            V_dir.append(0)
+        elif action == 2:
+            U.append(0)
+            V_dir.append(-0.5)
+        elif action == 3:
+            U.append(0)
+            V_dir.append(0.5)
+    if not U:
+        print("No valid actions found for policy visualization.")
+        return
+    plt.figure(figsize=(8, 8))
+    plt.imshow(maze_grid, cmap="binary")
+    plt.quiver(X, Y, U, V_dir, color="blue", scale=1, scale_units="xy", angles="xy")
+    plt.title(f"Maze {maze_size}x{maze_size} - Policy (Run {run_id})")
+    filename = os.path.join(IMAGE_DIR, f"policy_maze{maze_size}_run{run_id}.png")
+    plt.savefig(filename)
+    plt.close()
+
+def visualize_maze(maze_grid, maze_size, run_id):
+    plt.figure(figsize=(8, 8))
+    plt.imshow(maze_grid, cmap="binary")
+    plt.title(f"Maze {maze_size}x{maze_size} (Run {run_id})")
+    filename = os.path.join(IMAGE_DIR, f"maze_{maze_size}_run{run_id}.png")
+    plt.savefig(filename)
+    plt.close()
+
+def run_single_experiment(maze_cells, run_id):
+    maze_obj = Maze(maze_cells, maze_cells)
+    maze_grid = maze_obj.generate()
+
+    visualize_maze(maze_grid, maze_cells, run_id)
+
+    start = (1, 1)
+    goal = (maze_grid.shape[0] - 2, maze_grid.shape[1] - 2)
+    metrics = {"maze_cells": maze_cells}
+
     # DFS
-    start_time = time.time()
-    dfs_path = dfs(maze, start, goal)
-    results['DFS'] = {'time': time.time() - start_time, 'path_length': len(dfs_path) if dfs_path else None}
-    
-    # BFS
-    start_time = time.time()
-    bfs_path = bfs(maze, start, goal)
-    results['BFS'] = {'time': time.time() - start_time, 'path_length': len(bfs_path) if bfs_path else None}
-    
-    # A*
-    start_time = time.time()
-    a_star_path = a_star(maze, start, goal)
-    results['A*'] = {'time': time.time() - start_time, 'path_length': len(a_star_path) if a_star_path else None}
-    
-    # MDP Value Iteration
-    states, transitions, rewards = build_mdp_model(maze, goal, step_reward=-1, goal_reward=10)
-    start_time = time.time()
-    V_vi, policy_vi = value_iteration(states, transitions, rewards)
-    results['Value Iteration'] = {'time': time.time() - start_time}
-    
-    # MDP Policy Iteration
-    start_time = time.time()
-    try:
-        V_pi, policy_pi = policy_iteration(states, transitions, rewards)
-        results['Policy Iteration'] = {'time': time.time() - start_time}
-    except ValueError as e:
-        results['Policy Iteration'] = {'time': None, 'error': str(e)}
-    
-    return results
+    t0 = time.time()
+    path_dfs, nodes_dfs = dfs(maze_grid, start, goal)
+    dfs_time = time.time() - t0
+    metrics["DFS_time"] = dfs_time
+    metrics["DFS_path_length"] = len(path_dfs) if path_dfs else None
+    metrics["DFS_nodes_expanded"] = nodes_dfs
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--maze", type=str, required=True, help="Path to the maze CSV file")
-    parser.add_argument("--start", type=int, nargs=2, required=True, help="Start position (row col)")
-    parser.add_argument("--goal", type=int, nargs=2, required=True, help="Goal position (row col)")
-    parser.add_argument("--display", action="store_true", help="Display the maze solution")
-    args = parser.parse_args()
-    
-    maze = load_maze(args.maze)
-    start = tuple(args.start)
-    goal = tuple(args.goal)
-    
-    results = evaluate_algorithms(maze, start, goal)
-    
-    for algo, res in results.items():
-        if 'error' in res:
-            print(f"{algo}: Error - {res['error']}")
-        else:
-            print(f"{algo}: Time = {res['time']:.6f} sec", end="")
-            if 'path_length' in res:
-                print(f", Path Length = {res['path_length']}")
+    # BFS
+    t0 = time.time()
+    path_bfs, nodes_bfs = bfs(maze_grid, start, goal)
+    bfs_time = time.time() - t0
+    metrics["BFS_time"] = bfs_time
+    metrics["BFS_path_length"] = len(path_bfs) if path_bfs else None
+    metrics["BFS_nodes_expanded"] = nodes_bfs
+
+    # A*
+    t0 = time.time()
+    path_astar, nodes_astar = astar(maze_grid, start, goal)
+    astar_time = time.time() - t0
+    metrics["Astar_time"] = astar_time
+    metrics["Astar_path_length"] = len(path_astar) if path_astar else None
+    metrics["Astar_nodes_expanded"] = nodes_astar
+
+    # MDP Value Iteration
+    t0 = time.time()
+    V_vi, policy_vi, iters_vi, state_updates_vi, path_vi = value_iteration(maze_grid, start, goal, 0.99)
+    vi_time = time.time() - t0
+    metrics["VI_time"] = vi_time
+    metrics["VI_path_length"] = len(path_vi) if path_vi else None
+    metrics["VI_iterations"] = iters_vi
+    metrics["VI_state_updates"] = state_updates_vi
+
+    # MDP Policy Iteration
+    t0 = time.time()
+    V_pi, policy_pi, iters_pi, state_updates_pi, path_pi = policy_iteration(maze_grid, start, goal, 0.99)
+    pi_time = time.time() - t0
+    metrics["PI_time"] = pi_time
+    metrics["PI_path_length"] = len(path_pi) if path_pi else None
+    metrics["PI_iterations"] = iters_pi
+    metrics["PI_state_updates"] = state_updates_pi
+
+    return (metrics, maze_grid, path_dfs, path_bfs, path_astar,
+            path_vi, path_pi, V_vi, policy_vi, V_pi, policy_pi)
+
+def run_experiments(maze_sizes, num_runs=5):
+    all_results = []
+    detailed_results = []
+
+    for size in maze_sizes:
+        metrics_list = []
+        print(f"Running experiments for maze size: {size}x{size}")
+        for run in range(1, num_runs + 1):
+            (metrics, maze_grid, path_dfs, path_bfs, path_astar,
+             path_vi, path_pi, V_vi, policy_vi, V_pi, policy_pi) = run_single_experiment(size, run)
+
+            metrics["run"] = run
+            metrics_list.append(metrics)
+            detailed_results.append(metrics)
+
+            visualize_path(maze_grid, path_dfs, "DFS", size, run)
+            visualize_path(maze_grid, path_bfs, "BFS", size, run)
+            visualize_path(maze_grid, path_astar, "A*", size, run)
+            visualize_path(maze_grid, path_vi, "ValueIteration", size, run)
+            visualize_path(maze_grid, path_pi, "PolicyIteration", size, run)
+            visualize_value(maze_grid, V_vi, size, run)
+            visualize_policy(maze_grid, policy_pi, size, run)
+
+        # Aggregate metrics for this maze size.
+        agg = {"maze_cells": size}
+        keys = [k for k in metrics_list[0].keys() if k not in ["maze_cells", "run"]]
+        for key in keys:
+            values = [m[key] for m in metrics_list if m[key] is not None]
+            if values:
+                agg[f"{key}_mean"] = np.mean(values)
+                agg[f"{key}_std"]  = np.std(values)
             else:
-                print()
+                agg[f"{key}_mean"] = None
+                agg[f"{key}_std"]  = None
+        all_results.append(agg)
+
+    # Save detailed results to CSV inside the results folder.
+    csv_file = os.path.join(RESULTS_DIR, "maze_experiment_data_detailed.csv")
+    with open(csv_file, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=detailed_results[0].keys())
+        writer.writeheader()
+        for row in detailed_results:
+            writer.writerow(row)
+    print(f"Detailed experiment data saved to {csv_file}")
+
+    return all_results, detailed_results
+
+def plot_aggregated_results(aggregated_results):
+    plt.style.use('ggplot')
+    plt.rcParams.update({'font.size': 14})
+
+    sizes = [res["maze_cells"] for res in aggregated_results]
+
+    algo_mapping = {
+        "DFS": "DFS",
+        "BFS": "BFS",
+        "A*":  "Astar",
+        "VI":  "VI",
+        "PI":  "PI"
+    }
+
+    fig, ax = plt.subplots(figsize=(12, 8))
+    for display_name, key_name in algo_mapping.items():
+        times = [res.get(f"{key_name}_time_mean", 0) for res in aggregated_results]
+        stds  = [res.get(f"{key_name}_time_std", 0)  for res in aggregated_results]
+        ax.errorbar(
+            sizes, times, yerr=stds,
+            marker='o', markersize=8,
+            linewidth=2, capsize=5,
+            label=f"{display_name} Time"
+        )
+
+    ax.set_xlabel("Maze Size (cells)")
+    ax.set_ylabel("Runtime (seconds)")
+    ax.set_title("Average Runtime vs Maze Size (Log Scale)")
+    ax.set_yscale('log')
+    ax.legend()
+    ax.grid(True)
+    plt.tight_layout()
+    filename = os.path.join(IMAGE_DIR, "aggregated_runtime.png")
+    plt.savefig(filename)
+    plt.close()
+
 
 if __name__ == "__main__":
-    main()
+    maze_sizes = [10, 15, 20, 25, 50]
+    num_runs = 5
+    aggregated_results, detailed_results = run_experiments(maze_sizes, num_runs=num_runs)
+    plot_aggregated_results(aggregated_results)
+    csv_agg_file = os.path.join(RESULTS_DIR, "maze_experiment_data_aggregated.csv")
+    with open(csv_agg_file, "w", newline="") as f:
+        fieldnames = aggregated_results[0].keys()
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in aggregated_results:
+            writer.writerow(row)
+    print(f"Aggregated experiment data saved to {csv_agg_file}")
